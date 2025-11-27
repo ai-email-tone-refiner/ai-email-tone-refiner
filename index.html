@@ -1,1 +1,260 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>AI Email Tone Refiner</title><!-- Load Tailwind CSS --><script src="https://www.google.com/search?q=https://cdn.tailwindcss.com"></script><script>tailwind.config = {theme: {extend: {colors: {'primary': '#4f46e5','secondary': '#f59e0b','background': '#f8fafc','card': '#ffffff',},fontFamily: {sans: ['Inter', 'sans-serif'],},}}}</script><style>/* Custom styles for better aesthetics and loading animation /body {background-color: #f8fafc;font-family: 'Inter', sans-serif;}.container-wrapper {max-width: 1200px;margin: 0 auto;padding: 1rem;}.textarea-style {resize: none;transition: all 0.3s ease;}.textarea-style:focus {box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.4);border-color: #4f46e5;}/ Spinner animation for loading state */.spinner {border: 4px solid rgba(255, 255, v, 0.3);border-top: 4px solid #ffffff;border-radius: 50%;width: 24px;height: 24px;animation: spin 1s linear infinite;}@keyframes spin {0% { transform: rotate(0deg); }100% { transform: rotate(360deg); }}</style></head><body class="min-h-screen flex flex-col p-4 sm:p-8"><div class="container-wrapper"><header class="text-center mb-8"><h1 class="text-4xl font-extrabold text-gray-900 mb-2"><span class="text-primary">Gemini</span> Tone Refiner</h1><p class="text-lg text-gray-600">Transform your raw thoughts into polished, professional emails.</p></header>    <div id="app-container" class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <!-- Input Panel -->
+        <div class="bg-card shadow-xl rounded-xl p-6 border border-gray-100">
+            <h2 class="text-2xl font-semibold text-gray-800 mb-4">1. Your Draft (Unfiltered)</h2>
+            <textarea id="draft-input" rows="10" placeholder="Type your initial email draft here. Don't worry about politeness—just get your message out!"
+                class="textarea-style w-full p-3 border border-gray-300 rounded-lg focus:outline-none text-gray-700 mb-6"></textarea>
 
+            <h2 class="text-2xl font-semibold text-gray-800 mb-4">2. Select Desired Tone</h2>
+            <div id="tone-selector" class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+                <button data-tone="Professional & Formal" class="tone-btn bg-primary text-white font-medium py-3 px-4 rounded-lg shadow hover:bg-indigo-600 transition duration-150">
+                    Professional & Formal
+                </button>
+                <button data-tone="Concise & Direct" class="tone-btn bg-gray-200 text-gray-800 font-medium py-3 px-4 rounded-lg shadow hover:bg-gray-300 transition duration-150">
+                    Concise & Direct
+                </button>
+                <button data-tone="Friendly & Casual" class="tone-btn bg-gray-200 text-gray-800 font-medium py-3 px-4 rounded-lg shadow hover:bg-gray-300 transition duration-150">
+                    Friendly & Casual
+                </button>
+                <button data-tone="Apologetic & Empathetic" class="tone-btn bg-gray-200 text-gray-800 font-medium py-3 px-4 rounded-lg shadow hover:bg-gray-300 transition duration-150">
+                    Apologetic & Empathetic
+                </button>
+                <button data-tone="Persuasive & Urgent" class="tone-btn bg-gray-200 text-gray-800 font-medium py-3 px-4 rounded-lg shadow hover:bg-gray-300 transition duration-150">
+                    Persuasive & Urgent
+                </button>
+                <button data-tone="Constructive Criticism" class="tone-btn bg-gray-200 text-gray-800 font-medium py-3 px-4 rounded-lg shadow hover:bg-gray-300 transition duration-150">
+                    Constructive Criticism
+                </button>
+            </div>
+
+            <button id="refine-button"
+                class="w-full bg-secondary text-white font-bold py-3 rounded-lg shadow-lg hover:bg-yellow-600 transition duration-200 flex items-center justify-center disabled:opacity-50"
+                disabled>
+                <span id="button-text">Refine Email Draft</span>
+                <div id="loading-spinner" class="spinner ml-3 hidden"></div>
+            </button>
+        </div>
+
+        <!-- Output Panel -->
+        <div class="bg-card shadow-xl rounded-xl p-6 border border-gray-100">
+            <h2 class="text-2xl font-semibold text-gray-800 mb-4">3. Refined Email Output</h2>
+            <div id="result-output" class="min-h-[250px] p-4 bg-gray-50 border border-gray-200 rounded-lg whitespace-pre-wrap text-gray-800 text-sm">
+                Your refined email will appear here after you click the 'Refine' button.
+            </div>
+            <div id="sources-output" class="mt-4 text-xs text-gray-500 hidden">
+                <p class="font-semibold mb-1">Sources Used:</p>
+                <ul id="source-list" class="list-disc list-inside space-y-0.5"></ul>
+            </div>
+            <button id="copy-button" class="mt-4 w-full bg-primary text-white font-medium py-2 rounded-lg shadow hover:bg-indigo-600 transition duration-150 disabled:opacity-50" disabled>
+                Copy Refined Email
+            </button>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    // Gemini API Configuration
+    const API_KEY = ""; // Placeholder, key is provided by the environment
+    const MODEL_NAME = "gemini-2.5-flash-preview-09-2025";
+    const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL_NAME}:generateContent?key=${API_KEY}`;
+    
+    // UI Elements
+    const draftInput = document.getElementById('draft-input');
+    const toneSelector = document.getElementById('tone-selector');
+    const refineButton = document.getElementById('refine-button');
+    const resultOutput = document.getElementById('result-output');
+    const sourcesOutput = document.getElementById('sources-output');
+    const sourceList = document.getElementById('source-list');
+    const loadingSpinner = document.getElementById('loading-spinner');
+    const buttonText = document.getElementById('button-text');
+    const copyButton = document.getElementById('copy-button');
+
+    let selectedTone = document.querySelector('.tone-btn[data-tone="Professional & Formal"]').dataset.tone;
+
+    // --- Core Functions ---
+
+    // Function for exponential backoff during API calls
+    async function fetchWithBackoff(url, options, maxRetries = 5) {
+        for (let i = 0; i < maxRetries; i++) {
+            try {
+                const response = await fetch(url, options);
+                if (response.ok) {
+                    return response;
+                } else if (response.status === 429 && i < maxRetries - 1) {
+                    // Too Many Requests (429) - Retry with exponential backoff
+                    const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    console.log(`Attempt ${i + 1} failed (429). Retrying in ${delay / 1000}s...`);
+                    continue;
+                } else {
+                    // Handle non-429 and final 429 failure
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+            } catch (error) {
+                if (i === maxRetries - 1) {
+                    throw error; // Re-throw if it's the last attempt
+                }
+                console.error(`Attempt ${i + 1} failed: ${error.message}`);
+                const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+        throw new Error('API request failed after multiple retries.');
+    }
+
+    function extractSources(candidate) {
+        let sources = [];
+        const groundingMetadata = candidate.groundingMetadata;
+        if (groundingMetadata && groundingMetadata.groundingAttributions) {
+            sources = groundingMetadata.groundingAttributions
+                .map(attribution => ({
+                    uri: attribution.web?.uri,
+                    title: attribution.web?.title,
+                }))
+                .filter(source => source.uri && source.title);
+        }
+        return sources;
+    }
+
+    // --- Event Handlers ---
+
+    function updateUI(isLoading, message = "Your refined email will appear here...") {
+        refineButton.disabled = isLoading || draftInput.value.trim().length === 0;
+        draftInput.disabled = isLoading;
+        copyButton.disabled = isLoading || message === "Your refined email will appear here...";
+
+        if (isLoading) {
+            buttonText.textContent = 'Refining...';
+            loadingSpinner.classList.remove('hidden');
+            resultOutput.textContent = 'Processing your request...';
+            resultOutput.classList.add('italic', 'text-gray-400');
+            sourcesOutput.classList.add('hidden');
+        } else {
+            buttonText.textContent = 'Refine Email Draft';
+            loadingSpinner.classList.add('hidden');
+            resultOutput.textContent = message;
+            resultOutput.classList.remove('italic', 'text-gray-400');
+        }
+    }
+
+    function handleToneSelection(event) {
+        const newButton = event.target.closest('.tone-btn');
+        if (newButton) {
+            // Remove primary style from all buttons
+            document.querySelectorAll('.tone-btn').forEach(btn => {
+                btn.classList.remove('bg-primary', 'text-white', 'hover:bg-indigo-600');
+                btn.classList.add('bg-gray-200', 'text-gray-800', 'hover:bg-gray-300');
+            });
+            // Add primary style to the selected button
+            newButton.classList.remove('bg-gray-200', 'text-gray-800', 'hover:bg-gray-300');
+            newButton.classList.add('bg-primary', 'text-white', 'hover:bg-indigo-600');
+            selectedTone = newButton.dataset.tone;
+        }
+    }
+
+    async function refineDraft() {
+        const draft = draftInput.value.trim();
+        if (!draft) return;
+
+        updateUI(true);
+
+        const systemPrompt = `You are an AI Email Tone Refiner. Your task is to rewrite the user's 'Draft Text' into a new email that strictly adheres to the 'Desired Tone: ${selectedTone}'.
+Maintain the core message and all factual information from the original draft. You must make the output clear, polite, and effective based on the desired tone.Output only the refined email text, formatted professionally (like a standard email body, no salutations or sign-offs unless they are absolutely necessary to convey the tone).`;        const userQuery = `Draft Text: "${draft}"`;
+
+        const payload = {
+            contents: [{ parts: [{ text: userQuery }] }],
+            // Use Google Search grounding in case the draft contains external facts
+            tools: [{ "google_search": {} }],
+            systemInstruction: {
+                parts: [{ text: systemPrompt }]
+            },
+        };
+
+        try {
+            const response = await fetchWithBackoff(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const result = await response.json();
+            const candidate = result.candidates?.[0];
+
+            if (candidate && candidate.content?.parts?.[0]?.text) {
+                const text = candidate.content.parts[0].text;
+                const sources = extractSources(candidate);
+                
+                updateUI(false, text);
+
+                // Display sources if present
+                if (sources.length > 0) {
+                    sourceList.innerHTML = sources.map(s => 
+                        `<li><a href="${s.uri}" target="_blank" class="text-primary hover:underline" title="${s.uri}">${s.title}</a></li>`
+                    ).join('');
+                    sourcesOutput.classList.remove('hidden');
+                } else {
+                    sourcesOutput.classList.add('hidden');
+                }
+                
+            } else {
+                updateUI(false, 'Error: Could not generate refined email. Please check your input.');
+            }
+        } catch (error) {
+            console.error("API Call Error:", error);
+            updateUI(false, 'An unexpected error occurred during the refinement process.');
+        }
+    }
+
+    function copyToClipboard() {
+        const text = resultOutput.textContent;
+        navigator.clipboard.writeText(text).then(() => {
+            const originalText = copyButton.textContent;
+            copyButton.textContent = 'Copied!';
+            setTimeout(() => {
+                copyButton.textContent = originalText;
+            }, 2000);
+        }).catch(err => {
+            console.error('Could not copy text: ', err);
+            // Fallback for older browsers (document.execCommand is deprecated but works in iframe)
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            document.body.appendChild(textArea);
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                const originalText = copyButton.textContent;
+                copyButton.textContent = 'Copied! (Fallback)';
+                setTimeout(() => {
+                    copyButton.textContent = originalText;
+                }, 2000);
+            } catch (e) {
+                // Show a message box instead of alert()
+                resultOutput.textContent = 'Copy failed. Please manually select and copy the text.';
+            }
+            document.body.removeChild(textArea);
+        });
+    }
+
+    // --- Initialization and Listeners ---
+    
+    // Initial state update
+    draftInput.addEventListener('input', () => updateUI(false, resultOutput.textContent));
+    
+    // Tone selection listener (using event delegation)
+    toneSelector.addEventListener('click', handleToneSelection);
+    
+    // Refine button listener
+    refineButton.addEventListener('click', refineDraft);
+
+    // Copy button listener
+    copyButton.addEventListener('click', copyToClipboard);
+
+    // Set initial tone visual state
+    document.querySelector('.tone-btn[data-tone="Professional & Formal"]').click();
+    
+    // Example content for quick demonstration
+    draftInput.value = "I'm seriously mad that the project deadline was pushed back again. We worked over the weekend for this! I need a clear answer on why this happened immediately, and I expect the scope creep to stop now. This is unacceptable, and if it happens again, I'm taking it up the chain. Get it sorted.";
+    updateUI(false, "Ready to refine the example draft!");
+
+</script>
+</body></html>
